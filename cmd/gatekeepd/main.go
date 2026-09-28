@@ -108,14 +108,19 @@ func main() {
 	srv.Shutdown(sctx)
 }
 
-// spa serves a built single-page app, falling back to index.html.
+// spa serves the built TanStack Start SPA, falling back to its shell page
+// (_shell.html, or index.html for other builds) for client-side routes.
 func spa(dir string) http.Handler {
 	fs := http.FileServer(http.Dir(dir))
+	shell := filepath.Join(dir, "_shell.html")
+	if _, err := os.Stat(shell); err != nil {
+		shell = filepath.Join(dir, "index.html")
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := filepath.Join(dir, filepath.Clean("/"+r.URL.Path))
 		if st, err := os.Stat(p); err != nil || st.IsDir() {
 			if !strings.HasPrefix(r.URL.Path, "/assets/") {
-				http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+				http.ServeFile(w, r, shell)
 				return
 			}
 		}

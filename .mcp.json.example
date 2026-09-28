@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "gatekeep": {
+      "type": "http",
+      "url": "http://gatekeep.example:8740/mcp",
+      "headers": { "Authorization": "Bearer ${GATEKEEP_TOKEN}" }
+    }
+  }
+}
