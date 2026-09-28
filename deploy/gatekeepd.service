@@ -1,0 +1,18 @@
+[Unit]
+Description=gatekeep production access gateway
+After=network-online.target
+
+[Service]
+User=gatekeep
+WorkingDirectory=/opt/gatekeep
+ExecStart=/opt/gatekeep/bin/gatekeepd -config /etc/gatekeep/gatekeep.yaml
+Restart=on-failure
+# gatekeepd only needs its DB dir and its SSH key; everything else read-only.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/gatekeep
+ProtectHome=read-only
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
