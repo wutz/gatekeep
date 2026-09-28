@@ -1,0 +1,63 @@
+# gatekeep command policy.
+# Rules are evaluated top to bottom; first match wins.
+# Levels: 0 = read-only, 1 = low risk, 2 = high risk, 3 = critical.
+# Anything unmatched gets default_level so unknown commands are never "read-only".
+default_level: 2
+reject_shell_meta: true
+
+rules:
+  # ---------- critical (always first) ----------
+  - {name: rm-recursive, program: rm, args: '(^|\s)-[a-zA-Z]*[rR]', level: 3}
+  - {name: disk-format, program: 'mkfs*', level: 3}
+  - {name: dd, program: dd, level: 3}
+  - {name: power, program: '{shutdown,reboot,poweroff,halt}', level: 3}
+  - {name: k8s-delete-ns-node, program: kubectl, args: '^delete\s+(ns|namespace|namespaces|node|nodes|pv|crd)\b', level: 3}
+  - {name: k8s-delete-all, program: kubectl, args: '^delete\s.*(--all\b|-A\b)', level: 3}
+  - {name: ceph-pool-delete, program: ceph, args: '^osd\s+pool\s+(delete|rm)\b', level: 3}
+  - {name: ceph-fs-rm, program: ceph, args: '^fs\s+(rm|fail)\b', level: 3}
+  - {name: gpfs-delete-fs, program: '{mmdelfs,mmdelnsd,mmdelnode,mmdeldisk,mmshutdown}', level: 3}
+
+  # ---------- linux read-only ----------
+  - {name: linux-info, program: '{uptime,uname,hostname,hostnamectl,whoami,id,date,timedatectl,w,who,last,lscpu,lsblk,lsmem,lspci,lsusb,lsmod,nproc,arch,dmidecode}', level: 0}
+  - {name: linux-resources, program: '{free,vmstat,iostat,mpstat,sar,pidstat,df,du,top,ps,pgrep,lsof,numastat,nvidia-smi}', level: 0}
+  - {name: linux-network, program: '{ss,netstat,ping,traceroute,tracepath,dig,nslookup,host,ethtool}', level: 0}
+  - {name: ip-show, program: ip, args: '^(-\S+\s+)*(a|addr|address|l|link|r|route|n|neigh|rule)?(\s+(show|list|ls)(\s.*)?)?$', level: 0}
+  # secrets / credentials are never "read-only" for agents
+  - {name: sensitive-files, program: '*', args: '(/etc/shadow|/etc/gshadow|\.ssh/|id_rsa|id_ed25519|\.kube/config|/etc/ceph/.*keyring|\.pem\b|\.key\b)', level: 2}
+  - {name: find-mutate, program: find, args: '(^|\s)-(delete|exec|execdir|ok|okdir|fprint|fprintf|fls)\b', level: 2}
+  - {name: linux-files, program: '{cat,head,tail,grep,egrep,zgrep,zcat,wc,stat,file,ls,find,md5sum,sha256sum,readlink,realpath}', level: 0}
+  - {name: journalctl, program: journalctl, not_args: '--(vacuum|rotate|flush|sync|relinquish)', level: 0}
+  - {name: dmesg, program: dmesg, not_args: '(^|\s)(-[a-zA-Z]*[cC]|--clear|--read-clear|--console)', level: 0}
+  - {name: systemctl-read, program: systemctl, args: '^(status|show|list-units|list-unit-files|list-timers|is-active|is-enabled|is-failed|cat)\b', level: 0}
+  - {name: systemctl-restart, program: systemctl, args: '^(restart|reload|try-restart)\b', level: 1}
+  - {name: systemctl-change, program: systemctl, level: 2}
+  - {name: sysctl-read, program: sysctl, not_args: '=|(^|\s)-[a-zA-Z]*[wpf]', level: 0}
+
+  # ---------- kubernetes ----------
+  # note: verb must come first (put global flags like --context after the verb)
+  - {name: k8s-secrets, program: kubectl, args: '^(get|describe)\s.*\b(secret|secrets)\b', level: 2}
+  - {name: k8s-read, program: kubectl, args: '^(get|describe|logs|top|explain|api-resources|api-versions|version|cluster-info|events)\b', level: 0}
+  - {name: k8s-auth-can-i, program: kubectl, args: '^auth\s+can-i\b', level: 0}
+  - {name: k8s-config-view, program: kubectl, args: '^config\s+(view|get-contexts|current-context)\b', level: 0}
+  - {name: k8s-rollout-status, program: kubectl, args: '^rollout\s+(status|history)\b', level: 0}
+  - {name: k8s-rollout-restart, program: kubectl, args: '^rollout\s+restart\b', level: 1}
+  - {name: k8s-cordon, program: kubectl, args: '^(cordon|uncordon)\b', level: 1}
+  - {name: k8s-delete-pod, program: kubectl, args: '^delete\s+(po|pod|pods)\b', level: 1}
+  - {name: k8s-exec, program: kubectl, args: '^(exec|cp|port-forward|attach|debug)\b', level: 2}
+  - {name: k8s-mutate, program: kubectl, level: 2}
+  - {name: helm-read, program: helm, args: '^(list|ls|status|history|get|show|search|version|env)\b', level: 0}
+
+  # ---------- ceph ----------
+  - {name: ceph-read, program: ceph, args: '^(-s|status|health|df|versions|version|mon\s+(stat|dump)|mgr\s+(stat|dump|services)|osd\s+(stat|tree|df|dump|ls|perf|pool\s+(ls|stats|get))|pg\s+(stat|dump|ls)|fs\s+(ls|status|dump|get)|mds\s+stat|orch\s+(ls|ps|host\s+ls|device\s+ls)|crash\s+(ls|info)|log\s+last|config\s+(get|show|dump))\b', level: 0}
+  - {name: ceph-flags, program: ceph, args: '^osd\s+(set|unset)\s+(noout|norebalance|noscrub|nodeep-scrub)\b', level: 1}
+  - {name: ceph-mutate, program: ceph, level: 2}
+  - {name: rados-read, program: rados, args: '^(lspools|df|-p\s+\S+\s+ls)\b', level: 0}
+  - {name: rbd-read, program: rbd, args: '^(ls|list|info|status|du|snap\s+ls)\b', level: 0}
+
+  # ---------- GPFS / Spectrum Scale ----------
+  - {name: gpfs-read, program: '{mmlscluster,mmlsconfig,mmlsfs,mmlsnsd,mmlsdisk,mmlsmount,mmlsnode,mmlsquota,mmlsfileset,mmlssnapshot,mmlspool,mmlspolicy,mmlsmgr,mmlslicense,mmlsattr,mmgetstate,mmdf,mmrepquota,mmlsremotecluster,mmlsremotefs,mmgetacl,mmlsperfdata}', level: 0}
+  - {name: gpfs-health-read, program: mmhealth, args: '^(node|cluster|thresholds)\s+(show|list)\b', level: 0}
+  - {name: gpfs-diag-read, program: mmdiag, level: 0}
+  - {name: gpfs-ces-read, program: mmces, args: '^\S+\s+(list|show)\b|^(state|node|address)\s+(list|show)\b', level: 0}
+  - {name: gpfs-mount, program: '{mmmount,mmumount,mmstartup}', level: 1}
+  - {name: gpfs-mutate, program: 'mm*', level: 2}

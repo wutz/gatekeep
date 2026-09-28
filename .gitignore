@@ -1,0 +1,11 @@
+/bin/
+*.db
+*.db-shm
+*.db-wal
+configs/gatekeep.yaml
+node_modules/
+web/dist/
+web/.output/
+web/.tanstack/
+web/.vinxi/
+.DS_Store

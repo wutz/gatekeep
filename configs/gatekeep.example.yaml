@@ -1,0 +1,27 @@
+# gatekeep server configuration (example).
+listen: 127.0.0.1:8740
+db: gatekeep.db
+policy: configs/policy.yaml
+web_dir: web/dist/client      # built TanStack Start SPA; empty to disable
+exec_timeout_seconds: 60
+max_output_bytes: 1048576
+approval_ttl_minutes: 60
+default_target: local
+
+# Generate tokens with `gatekeepd gen-token`; store only token_sha256 in production.
+# `token:` (plaintext) is accepted for local development only.
+principals:
+  - {name: alice, kind: human, role: admin,    token: dev-alice}
+  - {name: bob,   kind: human, role: operator, token: dev-bob}
+  - {name: carol, kind: human, role: viewer,   token: dev-carol}
+  - {name: claude-code, kind: agent, token: dev-agent}
+  - {name: ci-bot, kind: agent, token: dev-ci, targets: [k8s-mgmt-1]}
+
+targets:
+  - {name: local, transport: local, description: "gatekeep host itself"}
+  - {name: k8s-mgmt-1, transport: ssh, host: 10.243.144.51, user: root, labels: [k8s-master, gpfs-client]}
+  - {name: k8s-mgmt-2, transport: ssh, host: 10.243.144.52, user: root, labels: [k8s-master, gpfs-client]}
+  - {name: k8s-mgmt-3, transport: ssh, host: 10.243.144.53, user: root, labels: [k8s-master, gpfs-client]}
+  - {name: gpu-103, transport: ssh, host: 10.243.145.103, user: root, labels: [k8s-worker, gpu, gpfs-nsd]}
+  - {name: gpu-105, transport: ssh, host: 10.243.145.105, user: root, labels: [k8s-worker, gpu, gpfs-nsd]}
+  - {name: gpu-106, transport: ssh, host: 10.243.145.106, user: root, labels: [k8s-worker, gpu, gpfs-nsd]}
