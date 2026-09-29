@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wutz/gatekeep/internal/config"
+	"github.com/wutz/gatekeep/internal/policy"
 	"github.com/wutz/gatekeep/internal/store"
 )
 
@@ -118,6 +119,42 @@ func (s *Service) Handler(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/policy", s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, s.Policy)
 	}))
+	mux.HandleFunc("GET /api/v1/rules", s.withAuth(s.humansOnly(func(w http.ResponseWriter, r *http.Request) {
+		custom, err := s.Store.ListRules()
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"custom": custom, "builtin": s.Policy.Rules,
+			"default_level": s.Policy.DefaultLevel, "can_edit": canManageRules(principalFrom(r))})
+	})))
+	mux.HandleFunc("POST /api/v1/rules", s.withAuth(s.humansOnly(s.handleSaveRule)))
+	mux.HandleFunc("PUT /api/v1/rules/{id}", s.withAuth(s.humansOnly(s.handleSaveRule)))
+	mux.HandleFunc("DELETE /api/v1/rules/{id}", s.withAuth(s.humansOnly(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err := s.DeleteRule(principalFrom(r), id, remoteAddr(r)); err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"ok": true})
+	})))
+	mux.HandleFunc("POST /api/v1/rules/test", s.withAuth(s.humansOnly(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Rule     policy.CustomRule `json:"rule"`
+			Target   string            `json:"target"`
+			Commands []string          `json:"commands"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&b); err != nil {
+			writeErr(w, errf(400, "bad json: %v", err))
+			return
+		}
+		res, err := s.TestRule(principalFrom(r), b.Rule, b.Target, b.Commands)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		writeJSON(w, 200, res)
+	})))
 	mux.HandleFunc("POST /api/v1/requests", s.withAuth(s.handleSubmit))
 	mux.HandleFunc("GET /api/v1/requests", s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		p := principalFrom(r)
@@ -202,7 +239,7 @@ func (s *Service) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b.DryRun {
-		c, err := s.Check(p, argv)
+		c, err := s.Check(p, b.Target, argv)
 		if err != nil {
 			writeErr(w, err)
 			return
@@ -229,6 +266,28 @@ func (s *Service) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		code = 403
 	}
 	writeJSON(w, code, req)
+}
+
+func (s *Service) handleSaveRule(w http.ResponseWriter, r *http.Request) {
+	var rule policy.CustomRule
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&rule); err != nil {
+		writeErr(w, errf(400, "bad json: %v", err))
+		return
+	}
+	rule.ID = 0
+	if id := r.PathValue("id"); id != "" {
+		rule.ID, _ = strconv.ParseInt(id, 10, 64)
+		if rule.ID <= 0 {
+			writeErr(w, errf(400, "bad rule id"))
+			return
+		}
+	}
+	out, err := s.SaveRule(principalFrom(r), &rule, remoteAddr(r))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Service) handleDecide(approve bool) http.HandlerFunc {

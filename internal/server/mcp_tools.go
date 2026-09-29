@@ -39,7 +39,10 @@ func mcpTools() []map[string]any {
 		{
 			"name":        "check",
 			"description": "Dry-run: classify a command's risk level and whether you could run it directly, without executing it.",
-			"inputSchema": obj(map[string]any{"command": str("The command line to classify.")}, "command"),
+			"inputSchema": obj(map[string]any{
+				"command": str("The command line to classify."),
+				"target":  str("Optional target; rules can differ per target."),
+			}, "command"),
 			"annotations": ro,
 		},
 		{
@@ -144,7 +147,7 @@ func (s *Service) callTool(r *http.Request, name string, raw json.RawMessage) ma
 		if err != nil {
 			return fail(err)
 		}
-		c, err := s.Check(p, argv)
+		c, err := s.Check(p, a.Target, argv)
 		if err != nil {
 			return fail(err)
 		}

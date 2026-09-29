@@ -33,6 +33,32 @@ Agent / 脚本 ──────────── gk CLI ──────┼
 
 策略在 [`configs/policy.yaml`](configs/policy.yaml)，按顺序首条匹配生效，可按需增删。
 
+### 自定义命令分级
+
+管理员可以在运行时调整任意命令的级别，不需要改 `policy.yaml` 也不需要重启。规则存进数据库，保存后立即生效。
+
+匹配顺序：**shell 元字符 → 锁定的内置规则（`locked: true`）→ 自定义规则（按优先级，小的先）→ 其余内置规则 → `default_level`**。
+
+- 一条规则的写法：程序 glob（支持 `{a,b}`）+ 参数须匹配的正则（可选）+ 参数不得匹配的正则（可选）+ 级别，可以限定只对某个目标生效。
+- 升级：例如把 `kubectl logs -n prod …` 提到 L2，这样 Agent 读生产日志也要审批。
+- 降级：例如把某台机上的 `systemctl restart kubelet` 降到 L0，Agent 就可以直接执行。
+- **锁定的内置规则不能被覆盖**，包括 `rm -r`、`mkfs`、`dd`、删 ns/node/pool/fs、关机、读密钥文件。
+- 不带参数条件的通配规则（`program: *`）不能低于 L2，防止一条规则把所有未知命令都放行给 Agent。
+- 只有 admin 能增、改、删规则；其他人类可以查看。创建、修改（记录修改前后的值）、删除和越权尝试都会写入审计哈希链。
+- 控制台里有「试算」：保存前输入样例命令，可以看到它们的级别会怎么变化。
+
+```sh
+# CLI（admin 令牌）
+gk rules                                   # 列出
+gk rules add --name prod-logs --program kubectl --args '^logs\s.*-n\s+prod\b' --level 2 --note "生产日志含用户数据"
+gk rules add --name kubelet-restart-gpu105 --program systemctl --args '^restart\s+kubelet$' \
+  --level 0 --target gpu-105 --priority 10
+gk rules rm 3
+gk -t gpu-105 check systemctl restart kubelet   # rule: custom:kubelet-restart-gpu105
+```
+
+API：`GET/POST /api/v1/rules`、`PUT/DELETE /api/v1/rules/{id}`、`POST /api/v1/rules/test`（试算）。
+
 ## 审计
 
 每个动作（提交、审批、驳回、执行、结束、越权尝试、认证失败、服务启停）都追加一条记录，记录中包含上一条记录的 SHA-256，形成哈希链；中间任何修改或删除都会被检测出来：

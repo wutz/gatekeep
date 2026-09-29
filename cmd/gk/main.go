@@ -5,6 +5,7 @@
 //	gk targets | pending | show <id> | wait <id>
 //	gk approve <id> [note] | reject <id> [note] | cancel <id>
 //	gk audit [--verify]
+//	gk rules [list] | rules add [flags] | rules rm <id>   custom command levels (admin)
 //
 // Environment: GATEKEEP_URL (default http://127.0.0.1:8740), GATEKEEP_TOKEN,
 // GATEKEEP_TARGET (default target).
@@ -132,7 +133,7 @@ func main() {
 	wait := fs.Int("wait", 0, "seconds to wait for approval")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: gk [-t target] [-r reason] [--wait N] <command...>\n"+
-			"       gk check|targets|pending|show|wait|approve|reject|cancel|audit ...")
+			"       gk check|targets|pending|show|wait|approve|reject|cancel|audit|rules ...")
 		fs.PrintDefaults()
 	}
 	fs.Parse(os.Args[1:])
@@ -157,7 +158,7 @@ func main() {
 			Rule      string
 			Outcome   string
 		}
-		if _, err := call("POST", "/api/v1/requests", map[string]any{"argv": args[1:], "dry_run": true}, &c); err != nil {
+		if _, err := call("POST", "/api/v1/requests", map[string]any{"argv": args[1:], "target": *target, "dry_run": true}, &c); err != nil {
 			die(err)
 		}
 		fmt.Printf("level: %s\nrule: %s\noutcome: %s\n", c.LevelName, c.Rule, c.Outcome)
@@ -217,6 +218,8 @@ func main() {
 			ts := time.UnixMilli(int64(e["ts"].(float64))).Format(time.DateTime)
 			fmt.Printf("%6v %s %-10v %-24v %v %v\n", e["seq"], ts, e["actor"], e["action"], e["request_id"], e["detail"])
 		}
+	case "rules":
+		rulesCmd(args[1:])
 	case "--":
 		args = args[1:]
 		fallthrough
@@ -228,5 +231,76 @@ func main() {
 			die(err)
 		}
 		finish(&r)
+	}
+}
+
+type customRule struct {
+	ID        int64  `json:"id,omitempty"`
+	Name      string `json:"name"`
+	Program   string `json:"program"`
+	Args      string `json:"args,omitempty"`
+	NotArgs   string `json:"not_args,omitempty"`
+	Level     int    `json:"level"`
+	Target    string `json:"target,omitempty"`
+	Priority  int    `json:"priority"`
+	Enabled   bool   `json:"enabled"`
+	Note      string `json:"note,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+}
+
+// rulesCmd manages custom (runtime) command levels.
+func rulesCmd(args []string) {
+	sub := "list"
+	if len(args) > 0 {
+		sub, args = args[0], args[1:]
+	}
+	switch sub {
+	case "list", "ls":
+		var out struct{ Custom []customRule }
+		if _, err := call("GET", "/api/v1/rules", nil, &out); err != nil {
+			die(err)
+		}
+		for _, r := range out.Custom {
+			state := "on "
+			if !r.Enabled {
+				state = "off"
+			}
+			tgt := r.Target
+			if tgt == "" {
+				tgt = "*"
+			}
+			fmt.Printf("%4d %s L%d p%-4d %-24s %-10s %s %s", r.ID, state, r.Level, r.Priority, r.Name, tgt, r.Program, r.Args)
+			if r.NotArgs != "" {
+				fmt.Printf("  !~ %s", r.NotArgs)
+			}
+			fmt.Println()
+		}
+	case "add":
+		fs := flag.NewFlagSet("rules add", flag.ExitOnError)
+		var r customRule
+		fs.StringVar(&r.Name, "name", "", "rule name (unique)")
+		fs.StringVar(&r.Program, "program", "", "program glob, e.g. kubectl or '{free,df}'")
+		fs.StringVar(&r.Args, "args", "", "regexp the argument string must match")
+		fs.StringVar(&r.NotArgs, "not-args", "", "regexp the argument string must NOT match")
+		fs.IntVar(&r.Level, "level", 2, "0 read-only, 1 low, 2 high, 3 critical")
+		fs.StringVar(&r.Target, "target", "", "only apply on this target (default all)")
+		fs.IntVar(&r.Priority, "priority", 100, "lower is evaluated first")
+		fs.StringVar(&r.Note, "note", "", "why this rule exists")
+		fs.Parse(args)
+		r.Enabled = true
+		if _, err := call("POST", "/api/v1/rules", r, &r); err != nil {
+			die(err)
+		}
+		fmt.Printf("rule %d %q created (L%d)\n", r.ID, r.Name, r.Level)
+	case "rm", "delete":
+		if len(args) == 0 {
+			die(fmt.Errorf("usage: gk rules rm <id>"))
+		}
+		if _, err := call("DELETE", "/api/v1/rules/"+args[0], nil, nil); err != nil {
+			die(err)
+		}
+		fmt.Printf("rule %s deleted\n", args[0])
+	default:
+		die(fmt.Errorf("usage: gk rules [list] | add --name N --program P [--args RE] [--level L] ... | rm <id>"))
 	}
 }

@@ -58,7 +58,7 @@ func TestDefaultPolicy(t *testing.T) {
 		{"/usr/bin/uptime", L0Read},
 	}
 	for _, c := range cases {
-		d, err := p.Classify(strings.Fields(c.cmd))
+		d, err := p.Classify(strings.Fields(c.cmd), "")
 		if err != nil {
 			t.Fatalf("%s: %v", c.cmd, err)
 		}
