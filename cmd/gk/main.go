@@ -6,6 +6,8 @@
 //	gk approve <id> [note] | reject <id> [note] | cancel <id>
 //	gk audit [--verify]
 //	gk rules [list] | rules add [flags] | rules rm <id>   custom command levels (admin)
+//	gk run <name> [key=value...] [--dry-run]            run a custom command
+//	gk cmd [list] | cmd add [flags] | cmd rm <id>        custom commands (admin)
 //
 // Environment: GATEKEEP_URL (default http://127.0.0.1:8740), GATEKEEP_TOKEN,
 // GATEKEEP_TARGET (default target).
@@ -52,6 +54,7 @@ type request struct {
 	Stdout       string   `json:"stdout"`
 	Stderr       string   `json:"stderr"`
 	Truncated    bool     `json:"truncated"`
+	Command      string   `json:"command"`
 }
 
 func call(method, path string, body any, out any) (int, error) {
@@ -120,6 +123,9 @@ func finish(r *request) {
 func printList(list []request) {
 	for _, r := range list {
 		fmt.Printf("%s  %-9s L%d  %-10s %-12s %s\n", r.ID, r.Status, r.Level, r.Requester, r.Target, strings.Join(r.Argv, " "))
+		if r.Command != "" {
+			fmt.Printf("    custom command: %s\n", r.Command)
+		}
 		if r.Reason != "" {
 			fmt.Printf("    reason: %s\n", r.Reason)
 		}
@@ -133,7 +139,8 @@ func main() {
 	wait := fs.Int("wait", 0, "seconds to wait for approval")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: gk [-t target] [-r reason] [--wait N] <command...>\n"+
-			"       gk check|targets|pending|show|wait|approve|reject|cancel|audit|rules ...")
+			"       gk run <custom-command> [key=value...] [--dry-run]\n"+
+			"       gk check|targets|pending|show|wait|approve|reject|cancel|audit|rules|cmd ...")
 		fs.PrintDefaults()
 	}
 	fs.Parse(os.Args[1:])
@@ -220,6 +227,10 @@ func main() {
 		}
 	case "rules":
 		rulesCmd(args[1:])
+	case "run":
+		runCustom(args[1:], *target, *reason, *wait)
+	case "cmd", "cmds":
+		cmdCmd(args[1:])
 	case "--":
 		args = args[1:]
 		fallthrough

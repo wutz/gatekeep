@@ -44,6 +44,7 @@ export interface GkRequest {
   stdout?: string
   stderr?: string
   truncated?: boolean
+  command?: string
 }
 
 export interface AuditEvent {
@@ -124,6 +125,40 @@ export interface RuleTest {
   error?: string
 }
 
+export interface CmdParam {
+  name: string
+  description?: string
+  pattern?: string
+  default?: string
+  optional?: boolean
+}
+
+export interface CustomCommand {
+  id?: number
+  name: string
+  description?: string
+  template: string
+  params: CmdParam[]
+  level: Level
+  targets: string[]
+  enabled: boolean
+  created_by?: string
+  created_at?: number
+  updated_by?: string
+  updated_at?: number
+}
+
+export interface CommandList {
+  commands: CustomCommand[]
+  can_edit: boolean
+}
+
+export interface RunCommandBody {
+  target?: string
+  params: Record<string, string>
+  reason?: string
+}
+
 const TOKEN_KEY = 'gatekeep.token'
 
 export const token = {
@@ -173,6 +208,14 @@ export const api = {
   deleteRule: (id: number) => call<{ ok: boolean }>('DELETE', `/api/v1/rules/${id}`),
   testRule: (rule: CustomRule, commands: string[], target?: string) =>
     call<RuleTest[]>('POST', '/api/v1/rules/test', { rule, commands, target }),
+  commands: () => call<CommandList>('GET', '/api/v1/commands'),
+  saveCommand: (c: CustomCommand) =>
+    c.id ? call<CustomCommand>('PUT', `/api/v1/commands/${c.id}`, c) : call<CustomCommand>('POST', '/api/v1/commands', c),
+  deleteCommand: (id: number) => call<{ ok: boolean }>('DELETE', `/api/v1/commands/${id}`),
+  checkCommand: (name: string, b: RunCommandBody) =>
+    call<Check>('POST', `/api/v1/commands/${encodeURIComponent(name)}/run`, { ...b, dry_run: true }),
+  runCommand: (name: string, b: RunCommandBody) =>
+    call<GkRequest>('POST', `/api/v1/commands/${encodeURIComponent(name)}/run`, b),
   approve: (id: string, note: string) => call<GkRequest>('POST', `/api/v1/requests/${id}/approve`, { note }),
   reject: (id: string, note: string) => call<GkRequest>('POST', `/api/v1/requests/${id}/reject`, { note }),
   cancel: (id: string) => call<GkRequest>('POST', `/api/v1/requests/${id}/cancel`, {}),

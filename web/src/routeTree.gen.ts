@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuditRouteImport } from './routes/audit'
+import { Route as CommandsRouteImport } from './routes/commands'
 import { Route as RulesRouteImport } from './routes/rules'
 import { Route as RunRouteImport } from './routes/run'
 import { Route as TargetsRouteImport } from './routes/targets'
@@ -25,6 +26,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuditRoute = AuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommandsRoute = CommandsRouteImport.update({
+  id: '/commands',
+  path: '/commands',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RulesRoute = RulesRouteImport.update({
@@ -56,6 +62,7 @@ const RequestsIdRoute = RequestsIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/commands': typeof CommandsRoute
   '/rules': typeof RulesRoute
   '/run': typeof RunRoute
   '/targets': typeof TargetsRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/commands': typeof CommandsRoute
   '/rules': typeof RulesRoute
   '/run': typeof RunRoute
   '/targets': typeof TargetsRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/audit': typeof AuditRoute
+  '/commands': typeof CommandsRoute
   '/rules': typeof RulesRoute
   '/run': typeof RunRoute
   '/targets': typeof TargetsRoute
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/audit'
+    | '/commands'
     | '/rules'
     | '/run'
     | '/targets'
@@ -95,6 +105,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/audit'
+    | '/commands'
     | '/rules'
     | '/run'
     | '/targets'
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/audit'
+    | '/commands'
     | '/rules'
     | '/run'
     | '/targets'
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuditRoute: typeof AuditRoute
+  CommandsRoute: typeof CommandsRoute
   RulesRoute: typeof RulesRoute
   RunRoute: typeof RunRoute
   TargetsRoute: typeof TargetsRoute
@@ -135,6 +148,13 @@ declare module '@tanstack/react-router' {
       path: '/audit'
       fullPath: '/audit'
       preLoaderRoute: typeof AuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/commands': {
+      id: '/commands'
+      path: '/commands'
+      fullPath: '/commands'
+      preLoaderRoute: typeof CommandsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/rules': {
@@ -178,6 +198,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuditRoute: AuditRoute,
+  CommandsRoute: CommandsRoute,
   RulesRoute: RulesRoute,
   RunRoute: RunRoute,
   TargetsRoute: TargetsRoute,

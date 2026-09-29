@@ -15,6 +15,7 @@ export function useLiveUpdates(enabled: boolean) {
       qc.invalidateQueries({ queryKey: ['request'] })
       qc.invalidateQueries({ queryKey: ['audit'] })
       qc.invalidateQueries({ queryKey: ['rules'] })
+      qc.invalidateQueries({ queryKey: ['commands'] })
     }
     return () => es.close()
   }, [enabled, qc])

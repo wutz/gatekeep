@@ -166,17 +166,17 @@ func Parse(b []byte) (*Policy, error) {
 
 var shellMeta = regexp.MustCompile("[;&|`$<>]|\\$\\(")
 
-// Classify returns the risk level for argv on target. Evaluation order:
-// shell metacharacters, locked built-in rules, custom rules (by priority),
-// the remaining built-in rules, then DefaultLevel.
-func (p *Policy) Classify(argv []string, target string) (Decision, error) {
+// Floor returns the minimum level argv must have regardless of any custom
+// rule or custom command: shell metacharacters and locked built-in rules.
+// ok is false when neither applies.
+func (p *Policy) Floor(argv []string, target string) (d Decision, ok bool) {
 	if len(argv) == 0 {
-		return Decision{}, fmt.Errorf("empty command")
+		return Decision{}, false
 	}
 	if p.RejectMeta {
 		for _, a := range argv {
 			if shellMeta.MatchString(a) {
-				return Decision{Level: L3Critical, Rule: "shell-metacharacter"}, nil
+				return Decision{Level: L3Critical, Rule: "shell-metacharacter"}, true
 			}
 		}
 	}
@@ -184,9 +184,24 @@ func (p *Policy) Classify(argv []string, target string) (Decision, error) {
 	args := strings.Join(argv[1:], " ")
 	for i := range p.Rules {
 		if r := &p.Rules[i]; r.Locked && r.match(prog, args, target) {
-			return Decision{Level: r.Level, Rule: r.Name}, nil
+			return Decision{Level: r.Level, Rule: r.Name}, true
 		}
 	}
+	return Decision{}, false
+}
+
+// Classify returns the risk level for argv on target. Evaluation order:
+// shell metacharacters, locked built-in rules, custom rules (by priority),
+// the remaining built-in rules, then DefaultLevel.
+func (p *Policy) Classify(argv []string, target string) (Decision, error) {
+	if len(argv) == 0 {
+		return Decision{}, fmt.Errorf("empty command")
+	}
+	if d, ok := p.Floor(argv, target); ok {
+		return d, nil
+	}
+	prog := filepath.Base(argv[0])
+	args := strings.Join(argv[1:], " ")
 	if c := p.custom.Load(); c != nil {
 		for i := range *c {
 			if r := &(*c)[i]; r.match(prog, args, target) {

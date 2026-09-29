@@ -4,6 +4,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -73,7 +74,27 @@ CREATE TABLE IF NOT EXISTS custom_rules (
   updated_by TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS custom_commands (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  template    TEXT NOT NULL,
+  params      TEXT NOT NULL DEFAULT '[]',  -- JSON
+  level       INTEGER NOT NULL,
+  targets     TEXT NOT NULL DEFAULT '[]',  -- JSON
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  created_by  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_by  TEXT NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
 `
+
+// migrations are idempotent ALTERs for databases created by older versions.
+var migrations = []string{
+	`ALTER TABLE requests ADD COLUMN command TEXT NOT NULL DEFAULT ''`,
+}
 
 // Open opens (and migrates) the database.
 func Open(path string) (*Store, error) {
@@ -84,6 +105,11 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
+	}
+	for _, m := range migrations {
+		if _, err := db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
 	}
 	return &Store{db: db}, nil
 }

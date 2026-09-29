@@ -82,6 +82,13 @@ func (s *Service) Check(p *config.Principal, target string, argv []string) (*Cla
 // Submit classifies argv, records it, and either executes immediately,
 // queues it for approval, or denies it.
 func (s *Service) Submit(ctx context.Context, p *config.Principal, target string, argv []string, reason, remote string) (*store.Request, error) {
+	return s.submit(ctx, p, target, argv, reason, remote, "", s.Policy.Classify)
+}
+
+// submit is Submit with a pluggable classifier; command names the custom
+// command the request came from (empty for raw commands).
+func (s *Service) submit(ctx context.Context, p *config.Principal, target string, argv []string, reason, remote, command string,
+	classify func([]string, string) (policy.Decision, error)) (*store.Request, error) {
 	if target == "" {
 		target = s.Cfg.DefaultTarget
 	}
@@ -93,14 +100,14 @@ func (s *Service) Submit(ctx context.Context, p *config.Principal, target string
 		s.Store.Audit(p.Name, string(p.Kind), "request.forbidden_target", "", target, remote, map[string]any{"argv": argv})
 		return nil, errf(403, "principal %q may not use target %q", p.Name, target)
 	}
-	d, err := s.Policy.Classify(argv, target)
+	d, err := classify(argv, target)
 	if err != nil {
 		return nil, errf(400, "%v", err)
 	}
 	outcome := policy.Authorize(actor(p), d.Level)
 	r := &store.Request{
 		ID: store.NewID(), Requester: p.Name, RequesterKind: string(p.Kind), Target: target,
-		Argv: argv, Reason: reason, Level: int(d.Level), Rule: d.Rule,
+		Argv: argv, Reason: reason, Level: int(d.Level), Rule: d.Rule, Command: command,
 	}
 	switch outcome {
 	case policy.Deny:

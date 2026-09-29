@@ -63,7 +63,10 @@ function ApprovalCard({ r, me }: { r: GkRequest; me?: Me }) {
             </span>
           </div>
           <div className="rounded-sm border border-hairline bg-canvas px-3 py-2">
-            <div className="eyebrow mb-1 normal-case">{r.target}</div>
+            <div className="eyebrow mb-1 normal-case">
+              {r.target}
+              {r.command && <span className="ml-2 text-accent-deep">自定义命令 · {r.command}</span>}
+            </div>
             <Command argv={r.argv} />
           </div>
           <div className="mt-3 text-body">

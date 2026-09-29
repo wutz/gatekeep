@@ -46,6 +46,28 @@ func mcpTools() []map[string]any {
 			"annotations": ro,
 		},
 		{
+			"name": "list_commands",
+			"description": "List the custom commands defined by your admins: named, parameterized operations " +
+				"(e.g. restart-service) with their parameters, risk level and allowed targets. " +
+				"Prefer these over hand-written commands when one fits.",
+			"inputSchema": obj(map[string]any{}),
+			"annotations": ro,
+		},
+		{
+			"name": "run_command",
+			"description": "Run a custom command (see list_commands) by name with parameter values. " +
+				"Same approval flow as run: above your level it is queued for human approval.",
+			"inputSchema": obj(map[string]any{
+				"name":    str("Custom command name from list_commands."),
+				"params":  map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "Parameter values, e.g. {\"service\": \"kubelet\"}."},
+				"target":  str("Optional target; must be one the command allows."),
+				"reason":  str("Why you need this. Required when approval is needed."),
+				"dry_run": map[string]any{"type": "boolean", "description": "Only render and classify; do not run."},
+				"wait_seconds": map[string]any{"type": "integer",
+					"description": "If approval is needed, block up to this many seconds (max 600). Default 0."},
+			}, "name"),
+		},
+		{
 			"name":        "list_targets",
 			"description": "List the hosts / clusters you can run commands on.",
 			"inputSchema": obj(map[string]any{}),
@@ -82,6 +104,9 @@ func formatRequest(r *store.Request) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "request: %s\nstatus: %s\ntarget: %s\ncommand: %s\nlevel: L%d (rule %s)\n",
 		r.ID, r.Status, r.Target, strings.Join(r.Argv, " "), r.Level, r.Rule)
+	if r.Command != "" {
+		fmt.Fprintf(&b, "custom command: %s\n", r.Command)
+	}
 	switch r.Status {
 	case store.StatusPending:
 		fmt.Fprintf(&b, "\nThis command changes state and is waiting for human approval (expires %s).\n"+
@@ -112,11 +137,14 @@ func formatRequest(r *store.Request) string {
 func (s *Service) callTool(r *http.Request, name string, raw json.RawMessage) map[string]any {
 	p := principalFrom(r)
 	var a struct {
-		Target      string `json:"target"`
-		Command     string `json:"command"`
-		Reason      string `json:"reason"`
-		ID          string `json:"id"`
-		WaitSeconds int    `json:"wait_seconds"`
+		Target      string            `json:"target"`
+		Command     string            `json:"command"`
+		Reason      string            `json:"reason"`
+		ID          string            `json:"id"`
+		WaitSeconds int               `json:"wait_seconds"`
+		Name        string            `json:"name"`
+		Params      map[string]string `json:"params"`
+		DryRun      bool              `json:"dry_run"`
 	}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &a); err != nil {
@@ -126,12 +154,25 @@ func (s *Service) callTool(r *http.Request, name string, raw json.RawMessage) ma
 	fail := func(err error) map[string]any { return toolText(true, "error: "+err.Error()) }
 	ctx := r.Context()
 	switch name {
-	case "run":
-		argv, err := ParseCommand(nil, a.Command)
-		if err != nil {
-			return fail(err)
+	case "run", "run_command":
+		var req *store.Request
+		var err error
+		if name == "run" {
+			var argv []string
+			if argv, err = ParseCommand(nil, a.Command); err != nil {
+				return fail(err)
+			}
+			req, err = s.Submit(ctx, p, a.Target, argv, a.Reason, remoteAddr(r))
+		} else if a.DryRun {
+			c, err := s.CheckCommand(p, a.Name, a.Target, a.Params)
+			if err != nil {
+				return fail(err)
+			}
+			return toolText(false, fmt.Sprintf("command: %s\ntarget: %s\nlevel: %s\nrule: %s\noutcome for you: %s",
+				strings.Join(c.Argv, " "), c.Target, c.LevelS, c.Rule, c.Outcome))
+		} else {
+			req, err = s.RunCommand(ctx, p, a.Name, a.Target, a.Params, a.Reason, remoteAddr(r))
 		}
-		req, err := s.Submit(ctx, p, a.Target, argv, a.Reason, remoteAddr(r))
 		if err != nil {
 			return fail(err)
 		}
@@ -152,6 +193,32 @@ func (s *Service) callTool(r *http.Request, name string, raw json.RawMessage) ma
 			return fail(err)
 		}
 		return toolText(false, fmt.Sprintf("level: %s\nrule: %s\noutcome for you: %s", c.LevelS, c.Rule, c.Outcome))
+	case "list_commands":
+		l, err := s.ListCommands(p)
+		if err != nil {
+			return fail(err)
+		}
+		if len(l.Commands) == 0 {
+			return toolText(false, "No custom commands are defined.")
+		}
+		var b strings.Builder
+		for _, c := range l.Commands {
+			fmt.Fprintf(&b, "- %s [%s]: %s\n  template: %s\n", c.Name, c.Level, c.Description, c.Template)
+			if len(c.Targets) > 0 {
+				fmt.Fprintf(&b, "  targets: %s\n", strings.Join(c.Targets, ", "))
+			}
+			for _, pr := range c.Params {
+				opt := ""
+				if pr.Optional {
+					opt = ", optional"
+				}
+				if pr.Default != "" {
+					opt += ", default " + pr.Default
+				}
+				fmt.Fprintf(&b, "  param %s (%s%s): %s\n", pr.Name, pr.EffectivePattern(), opt, pr.Description)
+			}
+		}
+		return toolText(false, b.String())
 	case "list_targets":
 		var b strings.Builder
 		for _, t := range s.Cfg.Targets {

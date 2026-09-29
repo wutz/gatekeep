@@ -155,6 +155,7 @@ func (s *Service) Handler(web http.Handler) http.Handler {
 		}
 		writeJSON(w, 200, res)
 	})))
+	s.commandRoutes(mux)
 	mux.HandleFunc("POST /api/v1/requests", s.withAuth(s.handleSubmit))
 	mux.HandleFunc("GET /api/v1/requests", s.withAuth(func(w http.ResponseWriter, r *http.Request) {
 		p := principalFrom(r)
@@ -248,12 +249,19 @@ func (s *Service) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req, err := s.Submit(r.Context(), p, b.Target, argv, b.Reason, remoteAddr(r))
+	s.writeSubmitted(w, r, req, err, b.Wait)
+}
+
+// writeSubmitted optionally waits for a pending request, then replies with
+// 200 (done), 202 (pending) or 403 (denied by policy).
+func (s *Service) writeSubmitted(w http.ResponseWriter, r *http.Request, req *store.Request, err error, wait int) {
+	p := principalFrom(r)
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	if req.Status == store.StatusPending && b.Wait > 0 {
-		req, err = s.Wait(r.Context(), p, req.ID, time.Duration(min(b.Wait, 600))*time.Second)
+	if req.Status == store.StatusPending && wait > 0 {
+		req, err = s.Wait(r.Context(), p, req.ID, time.Duration(min(wait, 600))*time.Second)
 		if err != nil {
 			writeErr(w, err)
 			return
