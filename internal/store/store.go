@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 CREATE INDEX IF NOT EXISTS audit_request ON audit(request_id);
 CREATE INDEX IF NOT EXISTS audit_actor ON audit(actor, ts);
+
+CREATE TABLE IF NOT EXISTS custom_rules (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE,
+  program    TEXT NOT NULL,
+  args       TEXT NOT NULL DEFAULT '',
+  not_args   TEXT NOT NULL DEFAULT '',
+  level      INTEGER NOT NULL,
+  target     TEXT NOT NULL DEFAULT '',
+  priority   INTEGER NOT NULL DEFAULT 100,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  note       TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `
 
 // Open opens (and migrates) the database.

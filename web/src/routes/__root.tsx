@@ -131,10 +131,11 @@ function App({ me }: { me: Me }) {
   useLiveUpdates(true)
   const qc = useQueryClient()
   const pending = useQuery({ queryKey: ['requests', { status: 'pending' }], queryFn: () => api.requests({ status: 'pending' }) })
-  const nav: { to: '/' | '/requests' | '/run' | '/audit' | '/targets'; label: string; badge?: number }[] = [
+  const nav: { to: '/' | '/requests' | '/run' | '/rules' | '/audit' | '/targets'; label: string; badge?: number }[] = [
     { to: '/', label: '审批', badge: pending.data?.length },
     { to: '/requests', label: '操作记录' },
     { to: '/run', label: '执行命令' },
+    { to: '/rules', label: '分级规则' },
     { to: '/audit', label: '审计日志' },
     { to: '/targets', label: '目标与接入' },
   ]

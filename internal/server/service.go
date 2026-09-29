@@ -58,20 +58,25 @@ func ParseCommand(argv []string, command string) ([]string, error) {
 // ClassifyResult is returned by Check.
 type ClassifyResult struct {
 	Argv    []string       `json:"argv"`
+	Target  string         `json:"target"`
 	Level   policy.Level   `json:"level"`
 	LevelS  string         `json:"level_name"`
 	Rule    string         `json:"rule"`
+	Custom  bool           `json:"custom,omitempty"`
 	Outcome policy.Outcome `json:"outcome"`
 }
 
 // Check classifies without executing (dry run).
-func (s *Service) Check(p *config.Principal, argv []string) (*ClassifyResult, error) {
-	d, err := s.Policy.Classify(argv)
+func (s *Service) Check(p *config.Principal, target string, argv []string) (*ClassifyResult, error) {
+	if target == "" {
+		target = s.Cfg.DefaultTarget
+	}
+	d, err := s.Policy.Classify(argv, target)
 	if err != nil {
 		return nil, errf(400, "%v", err)
 	}
-	return &ClassifyResult{Argv: argv, Level: d.Level, LevelS: d.Level.String(), Rule: d.Rule,
-		Outcome: policy.Authorize(actor(p), d.Level)}, nil
+	return &ClassifyResult{Argv: argv, Target: target, Level: d.Level, LevelS: d.Level.String(), Rule: d.Rule,
+		Custom: d.Custom, Outcome: policy.Authorize(actor(p), d.Level)}, nil
 }
 
 // Submit classifies argv, records it, and either executes immediately,
@@ -88,7 +93,7 @@ func (s *Service) Submit(ctx context.Context, p *config.Principal, target string
 		s.Store.Audit(p.Name, string(p.Kind), "request.forbidden_target", "", target, remote, map[string]any{"argv": argv})
 		return nil, errf(403, "principal %q may not use target %q", p.Name, target)
 	}
-	d, err := s.Policy.Classify(argv)
+	d, err := s.Policy.Classify(argv, target)
 	if err != nil {
 		return nil, errf(400, "%v", err)
 	}

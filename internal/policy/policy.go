@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 )
@@ -43,16 +44,58 @@ func (l Level) String() string {
 // Rule matches a command. Program is a glob matched against the program's base
 // name (e.g. "kubectl", "mmls*", "*", "{free,df}"); Args is a regular
 // expression matched against the space-joined argument string, and NotArgs, if
-// set, must NOT match.
+// set, must NOT match. Locked rules are evaluated before custom rules, so
+// runtime customization can never downgrade them.
 type Rule struct {
 	Name    string `yaml:"name" json:"name"`
 	Program string `yaml:"program" json:"program"`
 	Args    string `yaml:"args,omitempty" json:"args,omitempty"`
 	NotArgs string `yaml:"not_args,omitempty" json:"not_args,omitempty"`
 	Level   Level  `yaml:"level" json:"level"`
+	Locked  bool   `yaml:"locked,omitempty" json:"locked,omitempty"`
 	globs   []string
 	re      *regexp.Regexp
 	notRe   *regexp.Regexp
+	custom  bool
+	id      int64
+	target  string
+}
+
+func (r *Rule) compile() error {
+	if r.Program == "" {
+		return fmt.Errorf("rule %q: program required", r.Name)
+	}
+	r.globs = expandBraces(r.Program)
+	for _, g := range r.globs {
+		if _, err := filepath.Match(g, ""); err != nil {
+			return fmt.Errorf("rule %q: bad program glob: %w", r.Name, err)
+		}
+	}
+	var err error
+	if r.Args != "" {
+		if r.re, err = regexp.Compile(r.Args); err != nil {
+			return fmt.Errorf("rule %q: args: %w", r.Name, err)
+		}
+	}
+	if r.NotArgs != "" {
+		if r.notRe, err = regexp.Compile(r.NotArgs); err != nil {
+			return fmt.Errorf("rule %q: not_args: %w", r.Name, err)
+		}
+	}
+	return nil
+}
+
+func (r *Rule) match(prog, args, target string) bool {
+	if r.target != "" && r.target != target {
+		return false
+	}
+	if !r.matchProgram(prog) {
+		return false
+	}
+	if r.re != nil && !r.re.MatchString(args) {
+		return false
+	}
+	return r.notRe == nil || !r.notRe.MatchString(args)
 }
 
 // expandBraces expands a single top-level "{a,b,c}" group.
@@ -85,12 +128,17 @@ type Policy struct {
 	// Forbidden shell metacharacters; commands are exec'd directly, so these
 	// only indicate an attempt to smuggle a pipeline/redirect.
 	RejectMeta bool `yaml:"reject_shell_meta" json:"reject_shell_meta"`
+	// custom holds the runtime (database-backed) rules; see SetCustom.
+	custom atomic.Pointer[[]Rule]
 }
 
-// Decision is the classification result.
+// Decision is the classification result. Custom is set when a user-defined
+// rule (CustomID) decided the level.
 type Decision struct {
-	Level Level  `json:"level"`
-	Rule  string `json:"rule"`
+	Level    Level  `json:"level"`
+	Rule     string `json:"rule"`
+	Custom   bool   `json:"custom,omitempty"`
+	CustomID int64  `json:"custom_id,omitempty"`
 }
 
 // Load reads a policy file.
@@ -109,26 +157,8 @@ func Parse(b []byte) (*Policy, error) {
 		return nil, err
 	}
 	for i := range p.Rules {
-		r := &p.Rules[i]
-		if r.Program == "" {
-			return nil, fmt.Errorf("rule %q: program required", r.Name)
-		}
-		r.globs = expandBraces(r.Program)
-		for _, g := range r.globs {
-			if _, err := filepath.Match(g, ""); err != nil {
-				return nil, fmt.Errorf("rule %q: bad program glob: %w", r.Name, err)
-			}
-		}
-		var err error
-		if r.Args != "" {
-			if r.re, err = regexp.Compile(r.Args); err != nil {
-				return nil, fmt.Errorf("rule %q: args: %w", r.Name, err)
-			}
-		}
-		if r.NotArgs != "" {
-			if r.notRe, err = regexp.Compile(r.NotArgs); err != nil {
-				return nil, fmt.Errorf("rule %q: not_args: %w", r.Name, err)
-			}
+		if err := p.Rules[i].compile(); err != nil {
+			return nil, err
 		}
 	}
 	return p, nil
@@ -136,8 +166,10 @@ func Parse(b []byte) (*Policy, error) {
 
 var shellMeta = regexp.MustCompile("[;&|`$<>]|\\$\\(")
 
-// Classify returns the risk level for argv.
-func (p *Policy) Classify(argv []string) (Decision, error) {
+// Classify returns the risk level for argv on target. Evaluation order:
+// shell metacharacters, locked built-in rules, custom rules (by priority),
+// the remaining built-in rules, then DefaultLevel.
+func (p *Policy) Classify(argv []string, target string) (Decision, error) {
 	if len(argv) == 0 {
 		return Decision{}, fmt.Errorf("empty command")
 	}
@@ -150,17 +182,22 @@ func (p *Policy) Classify(argv []string) (Decision, error) {
 	}
 	prog := filepath.Base(argv[0])
 	args := strings.Join(argv[1:], " ")
-	for _, r := range p.Rules {
-		if !r.matchProgram(prog) {
-			continue
+	for i := range p.Rules {
+		if r := &p.Rules[i]; r.Locked && r.match(prog, args, target) {
+			return Decision{Level: r.Level, Rule: r.Name}, nil
 		}
-		if r.re != nil && !r.re.MatchString(args) {
-			continue
+	}
+	if c := p.custom.Load(); c != nil {
+		for i := range *c {
+			if r := &(*c)[i]; r.match(prog, args, target) {
+				return Decision{Level: r.Level, Rule: "custom:" + r.Name, Custom: true, CustomID: r.id}, nil
+			}
 		}
-		if r.notRe != nil && r.notRe.MatchString(args) {
-			continue
+	}
+	for i := range p.Rules {
+		if r := &p.Rules[i]; !r.Locked && r.match(prog, args, target) {
+			return Decision{Level: r.Level, Rule: r.Name}, nil
 		}
-		return Decision{Level: r.Level, Rule: r.Name}, nil
 	}
 	return Decision{Level: p.DefaultLevel, Rule: "default"}, nil
 }

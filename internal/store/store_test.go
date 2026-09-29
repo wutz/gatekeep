@@ -3,6 +3,8 @@ package store
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/wutz/gatekeep/internal/policy"
 )
 
 func TestAuditChain(t *testing.T) {
@@ -54,5 +56,40 @@ func TestTransition(t *testing.T) {
 	}
 	if v, _ := s.Verify(); !v.OK || v.Count != 2 {
 		t.Fatalf("%+v", v)
+	}
+}
+
+func TestRulesCRUD(t *testing.T) {
+	s, err := Open(t.TempDir() + "/r.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &policy.CustomRule{Name: "a", Program: "ls", Level: 1, Priority: 10, Enabled: true}
+	if err := s.CreateRule(r, "alice", "human", ""); err != nil || r.ID == 0 {
+		t.Fatal(err, r.ID)
+	}
+	if err := s.CreateRule(&policy.CustomRule{Name: "a", Program: "x"}, "alice", "human", ""); err != ErrDuplicate {
+		t.Fatalf("want ErrDuplicate, got %v", err)
+	}
+	r.Level = 2
+	if err := s.UpdateRule(r, "bob", "human", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetRule(r.ID)
+	if got.Level != 2 || got.CreatedBy != "alice" || got.UpdatedBy != "bob" {
+		t.Fatalf("%+v", got)
+	}
+	if err := s.DeleteRule(r.ID, "alice", "human", ""); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.ListRules(); len(list) != 0 {
+		t.Fatal(list)
+	}
+	ev, _ := s.ListAudit(AuditFilter{})
+	if len(ev) != 3 {
+		t.Fatalf("want 3 audit events, got %d", len(ev))
+	}
+	if v, _ := s.Verify(); !v.OK {
+		t.Fatal(v)
 	}
 }

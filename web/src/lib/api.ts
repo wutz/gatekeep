@@ -62,9 +62,11 @@ export interface AuditEvent {
 
 export interface Check {
   argv: string[]
+  target: string
   level: Level
   level_name: string
   rule: string
+  custom?: boolean
   outcome: 'allow' | 'need_approval' | 'deny'
 }
 
@@ -73,6 +75,53 @@ export interface Verify {
   count: number
   broken_at?: number
   reason?: string
+}
+
+export interface CustomRule {
+  id?: number
+  name: string
+  program: string
+  args?: string
+  not_args?: string
+  level: Level
+  target?: string
+  priority: number
+  enabled: boolean
+  note?: string
+  created_by?: string
+  created_at?: number
+  updated_by?: string
+  updated_at?: number
+}
+
+export interface BuiltinRule {
+  name: string
+  program: string
+  args?: string
+  not_args?: string
+  level: Level
+  locked?: boolean
+}
+
+export interface Rules {
+  custom: CustomRule[]
+  builtin: BuiltinRule[]
+  default_level: Level
+  can_edit: boolean
+}
+
+export interface Decision {
+  level: Level
+  rule: string
+  custom?: boolean
+}
+
+export interface RuleTest {
+  command: string
+  target: string
+  before: Decision
+  after: Decision
+  error?: string
 }
 
 const TOKEN_KEY = 'gatekeep.token'
@@ -116,7 +165,14 @@ export const api = {
   request: (id: string) => call<GkRequest>('GET', `/api/v1/requests/${id}`),
   submit: (b: { target: string; command: string; reason?: string }) =>
     call<GkRequest>('POST', '/api/v1/requests', b),
-  check: (command: string) => call<Check>('POST', '/api/v1/requests', { command, dry_run: true }),
+  check: (command: string, target?: string) =>
+    call<Check>('POST', '/api/v1/requests', { command, target, dry_run: true }),
+  rules: () => call<Rules>('GET', '/api/v1/rules'),
+  saveRule: (r: CustomRule) =>
+    r.id ? call<CustomRule>('PUT', `/api/v1/rules/${r.id}`, r) : call<CustomRule>('POST', '/api/v1/rules', r),
+  deleteRule: (id: number) => call<{ ok: boolean }>('DELETE', `/api/v1/rules/${id}`),
+  testRule: (rule: CustomRule, commands: string[], target?: string) =>
+    call<RuleTest[]>('POST', '/api/v1/rules/test', { rule, commands, target }),
   approve: (id: string, note: string) => call<GkRequest>('POST', `/api/v1/requests/${id}/approve`, { note }),
   reject: (id: string, note: string) => call<GkRequest>('POST', `/api/v1/requests/${id}/reject`, { note }),
   cancel: (id: string) => call<GkRequest>('POST', `/api/v1/requests/${id}/cancel`, {}),

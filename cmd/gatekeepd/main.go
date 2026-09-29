@@ -72,6 +72,9 @@ func main() {
 		Cfg: cfg, Policy: pol, Store: st, Events: server.NewHub(),
 		Exec: &executor.Executor{Timeout: time.Duration(cfg.ExecTimeout) * time.Second, MaxOutput: cfg.MaxOutput},
 	}
+	if err := svc.LoadRules(); err != nil {
+		log.Fatalf("custom rules: %v", err)
+	}
 
 	var web http.Handler
 	if cfg.WebDir != "" {

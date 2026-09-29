@@ -26,9 +26,9 @@ function Run() {
   // Live classification while typing.
   useEffect(() => {
     if (!command.trim()) return setCheck(null)
-    const t = setTimeout(() => api.check(command).then(setCheck).catch(() => setCheck(null)), 250)
+    const t = setTimeout(() => api.check(command, target).then(setCheck).catch(() => setCheck(null)), 250)
     return () => clearTimeout(t)
-  }, [command])
+  }, [command, target])
   const submit = useMutation({ mutationFn: () => api.submit({ target, command, reason }) })
   const res = submit.data
   return (
@@ -65,7 +65,7 @@ function Run() {
           {check && (
             <>
               <LevelBadge level={check.level} />
-              <span className="code text-[12px] text-mute">rule: {check.rule}</span>
+              <span className="code text-[12px] text-mute">rule: {check.rule}{check.custom && ' (自定义)'}</span>
               <span className={`text-[13px] ${outcomeText[check.outcome].cls}`}>{outcomeText[check.outcome].t}</span>
             </>
           )}
