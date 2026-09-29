@@ -39,17 +39,20 @@ type Request struct {
 	Reason        string   `json:"reason"`
 	Level         int      `json:"level"`
 	Rule          string   `json:"rule"`
-	Status        string   `json:"status"`
-	Approver      string   `json:"approver,omitempty"`
-	DecidedAt     int64    `json:"decided_at,omitempty"`
-	DecisionNote  string   `json:"decision_note,omitempty"`
-	ExpiresAt     int64    `json:"expires_at,omitempty"`
-	StartedAt     int64    `json:"started_at,omitempty"`
-	FinishedAt    int64    `json:"finished_at,omitempty"`
-	ExitCode      int      `json:"exit_code"`
-	Stdout        string   `json:"stdout,omitempty"`
-	Stderr        string   `json:"stderr,omitempty"`
-	Truncated     bool     `json:"truncated,omitempty"`
+	// Command is the custom command name when the request was made through
+	// one (see internal/commands); empty for raw commands.
+	Command      string `json:"command,omitempty"`
+	Status       string `json:"status"`
+	Approver     string `json:"approver,omitempty"`
+	DecidedAt    int64  `json:"decided_at,omitempty"`
+	DecisionNote string `json:"decision_note,omitempty"`
+	ExpiresAt    int64  `json:"expires_at,omitempty"`
+	StartedAt    int64  `json:"started_at,omitempty"`
+	FinishedAt   int64  `json:"finished_at,omitempty"`
+	ExitCode     int    `json:"exit_code"`
+	Stdout       string `json:"stdout,omitempty"`
+	Stderr       string `json:"stderr,omitempty"`
+	Truncated    bool   `json:"truncated,omitempty"`
 }
 
 // NewID returns a short random request id.
@@ -60,7 +63,7 @@ func NewID() string {
 }
 
 const reqCols = `id,created_at,requester,requester_kind,target,argv,reason,level,rule,status,approver,decided_at,
-decision_note,expires_at,started_at,finished_at,exit_code,stdout,stderr,truncated`
+decision_note,expires_at,started_at,finished_at,exit_code,stdout,stderr,truncated,command`
 
 func scanRequest(sc interface{ Scan(...any) error }) (*Request, error) {
 	var r Request
@@ -68,7 +71,7 @@ func scanRequest(sc interface{ Scan(...any) error }) (*Request, error) {
 	var trunc int
 	err := sc.Scan(&r.ID, &r.CreatedAt, &r.Requester, &r.RequesterKind, &r.Target, &argv, &r.Reason, &r.Level, &r.Rule,
 		&r.Status, &r.Approver, &r.DecidedAt, &r.DecisionNote, &r.ExpiresAt, &r.StartedAt, &r.FinishedAt,
-		&r.ExitCode, &r.Stdout, &r.Stderr, &trunc)
+		&r.ExitCode, &r.Stdout, &r.Stderr, &trunc, &r.Command)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -89,14 +92,14 @@ func (s *Store) CreateRequest(r *Request, remote string) error {
 	if r.CreatedAt == 0 {
 		r.CreatedAt = time.Now().UnixMilli()
 	}
-	_, err := s.db.Exec(`INSERT INTO requests(id,created_at,requester,requester_kind,target,argv,reason,level,rule,status,expires_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.CreatedAt, r.Requester, r.RequesterKind, r.Target, string(argv), r.Reason, r.Level, r.Rule, r.Status, r.ExpiresAt)
+	_, err := s.db.Exec(`INSERT INTO requests(id,created_at,requester,requester_kind,target,argv,reason,level,rule,status,expires_at,command)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.CreatedAt, r.Requester, r.RequesterKind, r.Target, string(argv), r.Reason, r.Level, r.Rule, r.Status, r.ExpiresAt, r.Command)
 	if err != nil {
 		return err
 	}
 	return s.auditLocked(r.Requester, r.RequesterKind, "request.create", r.ID, r.Target, remote, map[string]any{
-		"argv": r.Argv, "reason": r.Reason, "level": r.Level, "rule": r.Rule, "status": r.Status,
+		"argv": r.Argv, "reason": r.Reason, "level": r.Level, "rule": r.Rule, "status": r.Status, "command": r.Command,
 	})
 }
 

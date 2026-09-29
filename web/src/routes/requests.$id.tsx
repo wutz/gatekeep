@@ -21,6 +21,7 @@ function Detail() {
     ['目标', <span className="code">{d.target}</span>],
     ['提交者', <>{d.requester} <KindBadge kind={d.requester_kind} /></>],
     ['匹配规则', <span className="code">{d.rule}</span>],
+    ...(d.command ? [['自定义命令', <span className="code">{d.command}</span>] as [string, React.ReactNode]] : []),
     ['提交时间', fmtTime(d.created_at)],
     ['审批人', d.approver || '—'],
     ['审批时间', fmtTime(d.decided_at)],
